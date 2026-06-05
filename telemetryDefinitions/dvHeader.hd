@@ -1,0 +1,68 @@
+{
+    "fields": [
+        {
+            "fieldName": "Version Number",
+            "type": "uint",
+            "bitLength": 3,
+            "bitstructType": "u3"
+        },
+        {
+            "fieldName": "Packet Type",
+            "type": "uint",
+            "bitLength": 1,
+            "bitstructType": "u1"
+        },
+        {
+            "fieldName": "Secondary Header Flag",
+            "type": "uint",
+            "bitLength": 1,
+            "bitstructType": "u1"
+        },
+        {
+            "fieldName": "APID",
+            "type": "uint",
+            "bitLength": 11,
+            "bitstructType": "u11"
+        },
+        {
+            "fieldName": "Sequence Flags",
+            "type": "uint",
+            "bitLength": 2,
+            "bitstructType": "u2"
+        },
+        {
+            "fieldName": "Packet Sequence Count",
+            "type": "uint",
+            "bitLength": 14,
+            "bitstructType": "u14"
+        },
+        {
+            "fieldName": "Packet Data Length",
+            "type": "uint",
+            "bitLength": 16,
+            "bitstructType": "u16"
+        },
+        {
+            "fieldName": "groundTimeStamp",
+            "type": "uint8_t",
+            "arrayLength": 5,
+            "bitLength": 40,
+            "description": "Packet creation time (seconds since midnight January 5-6 1980); see ISS SSP 41175-02 for format specification.",
+            "conversion": {
+                "units": "HH:MM:SS",
+                "conversionFunction": "ISSTime",
+                "conversionArgs": [],
+                "convertedType": "char"
+            },
+            "bitstructType": "u8u8u8u8u8"
+        },
+        {
+            "fieldName": "fiveUselessEmptyBytes",
+            "type": "uint8_t",
+            "arrayLength": 5,
+            "bitLength": 40,
+            "description": "Secondary header data control fields, per ISS SSP 52050.",
+            "bitstructType": "u8u8u8u8u8"
+        }
+    ]
+}
