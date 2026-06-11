@@ -19,6 +19,19 @@
                 "packetDefinitionsIndex":3,
                 "description":"/home/jacob/share/next/packetDefinitions/secondaryHeader.hd contains a field called packetId "
                 }
+            },
+        "telemetry":{
+            "format":
+                ["/home/jacob/share/next/packetDefinitions/primaryHeader.hd",
+                "/home/jacob/share/next/packetDefinitions/secondaryHeader.hd",
+                "/home/jacob/share/next/packetDefinitions/o2o_tlm_db_new.pd"],
+            "packetIdentifier":
+                {
+                "identifierSourceIndex":1,
+                "field":"packetId",
+                "packetDefinitionsIndex":2,
+                "description":"/home/jacob/share/next/packetDefinitions/secondaryHeader.hd contains a field called packetId "
+                }
             }
     },
     "storage":{

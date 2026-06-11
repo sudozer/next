@@ -783,20 +783,34 @@ p, li { white-space: pre-wrap; }
         </widget>
        </item>
        <item>
-        <widget class="QLabel" name="validFieldLabel">
-         <property name="font">
-          <font>
-           <pointsize>12</pointsize>
-           <underline>true</underline>
-          </font>
+        <layout class="QHBoxLayout" name="horizontalLayout_15">
+         <property name="topMargin">
+          <number>6</number>
          </property>
-         <property name="text">
-          <string>Valid Field </string>
-         </property>
-         <property name="alignment">
-          <set>Qt::AlignCenter</set>
-         </property>
-        </widget>
+         <item>
+          <widget class="QLabel" name="validFieldLabel">
+           <property name="font">
+            <font>
+             <pointsize>12</pointsize>
+             <underline>true</underline>
+            </font>
+           </property>
+           <property name="text">
+            <string>Valid Field </string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="saveFieldButton">
+           <property name="text">
+            <string>Save Field</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
        </item>
        <item>
         <widget class="QTextEdit" name="fieldMessages">

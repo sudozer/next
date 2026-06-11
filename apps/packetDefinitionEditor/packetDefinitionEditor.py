@@ -2,9 +2,10 @@ from pathlib import Path
 import pdb
 import json
 import os
+import copy
 
 from PySide6.QtGui import QColor #for colors
-from PySide6.QtCore import QFile
+from PySide6.QtCore import QFile, Qt
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
     QApplication, 
@@ -50,14 +51,40 @@ def colorGen(baseColor, hueStep=55):
         yield QColor.fromHsv(*baseColor)
         baseColor = ((baseColor[0] + hueStep) % 360, baseColor[1], baseColor[2])
 
+class ParentItem(QTreeWidgetItem):
+    def __init__(self,treeWidget,text):
+        super().__init__(treeWidget,[text])
+        self.children = []
+        self.currentlyValid = True
+    
+    def validate(self):
+        self.currentlyValid = True
+        for child in self.children:
+            if not child.currentlyValid:
+                self.setBackground(0,ERRORCOLOR)
+                self.currentlyValid = False
+                break
+
+        if self.currentlyValid:
+            self.setBackground(0,WHITE)
 
 class FieldItem(QTreeWidgetItem):
-    def __init__(self,treeWidget,sourceFile,fieldDict,color):
+    def __init__(self,ui,treeWidget,sourceFile,fieldDict,parentItems,color):
         super().__init__(treeWidget,[fieldDict['fieldName']])
         self.fieldDict = fieldDict
+        self.color = color
+        self.ui = ui
+        self.sourceFile = sourceFile
         self.validator = PacketDefinitionUtility()
-        validField,msgs = self.validator.validateField(fieldDict)
-        
+        self.parentItems = parentItems
+
+        self.parentItemId = None
+        if isinstance(self.parent(),ParentItem):
+            self.parentItemId = self.parent().text(0).split(' - ')[0]
+
+        self.currentlyValid = True
+        self.addToParents()
+        self.validate()
         if 'conversion' in fieldDict:
             self.conversion = fieldDict['conversion']
         else:
@@ -67,14 +94,30 @@ class FieldItem(QTreeWidgetItem):
         else:
             self.limits = None
 
+    def validate(self):
+        validField,msgs = self.validator.validateField(self.fieldDict)
         if validField:
-            self.setBackground(0,color)
-        else:
-            self.setBackground(0,ERRORCOLOR)
-            pdb.set_trace()
+            self.ui.fieldMessages.setText("Field fully validated")
+            self.setBackground(0,self.color)
 
-    def changeAllParentsColor(self):
-        pass
+        elif not validField:
+            self.setBackground(0,ERRORCOLOR)
+            self.ui.fieldMessages.setText("\n".join(msgs))
+
+        if not validField == self.currentlyValid:
+            self.currentlyValid = validField
+            for parent in self.parentItems:
+                parent.validate()
+    
+        return validField
+        
+    def changeAllParentsColor(self,color):
+        for item in self.parentItems:
+            item.setBackground(0,color)
+
+    def addToParents(self):
+        for parent in self.parentItems:
+            parent.children.append(self)
 
 class PacketDefinitionEditor(QMainWindow):
 
@@ -98,6 +141,7 @@ class PacketDefinitionEditor(QMainWindow):
         self.initGUI()
     
     def initGUI(self):
+        self.fieldChanged = False
         self.ui.telemetryDefinitionsTree.setHeaderHidden(True)
         self.ui.telemetryDefinitionsTree.setColumnCount(1)
         self.ui.structureTree.setHeaderHidden(True)
@@ -108,7 +152,7 @@ class PacketDefinitionEditor(QMainWindow):
         self.ui.structureTree.itemSelectionChanged.connect(self.structureSelected)
         self.ui.telemetryDefinitionsTree.itemSelectionChanged.connect(self.telemetryDefinitionSelected)
         self.ui.fieldsTree.itemSelectionChanged.connect(self.fieldSelected)
-        
+        self.previouslySelected = None
         #fields signals
         self.ui.dataTypeComboBox.currentTextChanged.connect(self.dataTypeSelected)
 
@@ -119,21 +163,7 @@ class PacketDefinitionEditor(QMainWindow):
         self.ui.dynamicLengthFieldLineEdit.setEnabled(False)
         self.ui.lengthFieldOffsetSpinBox.setEnabled(False)
         self.ui.lengthInBitsComboBox.setEnabled(False)
-
-        self.fieldControls = [
-            self.ui.fieldNameLineEdit,
-            self.ui.dataTypeComboBox,
-            self.ui.descriptionTextEdit,
-            self.ui.arrayLengthSpinBox,
-            self.ui.variableLengthCheckbox,
-            self.ui.dynamicLengthFieldButton,
-            self.ui.dynamicLengthFieldLineEdit,
-            self.ui.lengthFieldOffsetSpinBox,
-            self.ui.lengthInBitsComboBox,
-            self.ui.bitLengthSpinBox
-        ]
-        self.ui.fieldNameLineEdit.onTextChanged.connect(lambda: self.writeDefDict(self.ui.fieldsTree.selectedItems()[0]))
-        
+        self.ui.saveFieldButton.clicked.connect(lambda: self.writeDefDict(self.ui.fieldsTree.currentItem()))
 
     def loadDefsStructs(self):
         self.populateTelemetryDefinitions()
@@ -149,16 +179,16 @@ class PacketDefinitionEditor(QMainWindow):
 
         for telemetryDefinitionFile in files:
             self.telemetryDefinitions[telemetryDefinitionFile.name] = json.load(open(telemetryDefinitionFile,'r'))
-            item = QTreeWidgetItem(self.ui.telemetryDefinitionsTree,[telemetryDefinitionFile.name])            
+            item = ParentItem(self.ui.telemetryDefinitionsTree,telemetryDefinitionFile.name)            
             
         files = [f for f in tdefPath.rglob('*') if f.is_file() and f.suffix in ('.pd')]
         for telemetryDefinitionFile in files:
             self.telemetryDefinitions[telemetryDefinitionFile.name] = json.load(open(telemetryDefinitionFile,'r'))
             packetDefinition = self.telemetryDefinitions[telemetryDefinitionFile.name]
-            item = QTreeWidgetItem(self.ui.telemetryDefinitionsTree,[telemetryDefinitionFile.name])
+            item = ParentItem(self.ui.telemetryDefinitionsTree,telemetryDefinitionFile.name)
             for k in packetDefinition.keys():
                 packetName = packetDefinition[k]['packetName']
-                packetItem = QTreeWidgetItem(item,[f"{k} - {packetName}"])
+                packetItem = ParentItem(item,f"{k} - {packetName}")
 
     def populateTelemetryStructures(self):
         self.ui.structureTree.clear()
@@ -173,7 +203,6 @@ class PacketDefinitionEditor(QMainWindow):
                 component.setBackground(0,next(colorGenerator))
 
     def validateAllTelemetryDefinitions(self):
-        pdb.set_trace()
         for i in range(self.ui.telemetryDefinitionsTree.topLevelItemCount()):
             validDefinition = True
             telemetryDefItem = self.ui.telemetryDefinitionsTree.topLevelItem(i)
@@ -240,7 +269,7 @@ class PacketDefinitionEditor(QMainWindow):
                     #packet definition selected, display all packets
                     
                     for pktId,pktDef in defDict.items():
-                        packetItem = QTreeWidgetItem(self.ui.fieldsTree,[f"{pktId} - {pktDef['packetName']}"])
+                        packetItem = ParentItem(self.ui.fieldsTree,f"{pktId} - {pktDef['packetName']}")
                         self.populateFields(pktDef['fields'],telemetryDefinitionName,packetItem)
                 else:
                     #header definition selected, simply show all fields
@@ -248,13 +277,22 @@ class PacketDefinitionEditor(QMainWindow):
                     self.populateFields(defDict['fields'],telemetryDefinitionName,self.ui.fieldsTree)
     
     def fieldSelected(self):
-        selectedItems = self.ui.fieldsTree.selectedItems()
-        if selectedItems:
-            selectedItem = selectedItems[0]
+        continueChanging = True
+        if self.previouslySelected and self.fieldChanged:
+            continueChanging = self.askToSave(self.previoiuslySelected)
+        
+        if continueChanging:
+            selectedItems = self.ui.fieldsTree.selectedItems()
+            if selectedItems:
+                selectedItem = selectedItems[0]
 
-        if len(selectedItems) > 0 and isinstance(selectedItem,FieldItem):
-            fieldDict = selectedItem.fieldDict
-            self.populateFieldParameters(fieldDict)
+            if len(selectedItems) > 0 and isinstance(selectedItem,FieldItem):
+                fieldDict = selectedItem.fieldDict
+                self.populateFieldParameters(fieldDict)
+            self.previouslySelected = self.ui.fieldsTree.currentItem()
+
+    def askToSave(self,item):
+        pass
 
     def variableLengthChanged(self,state):
         if state == 2:
@@ -291,11 +329,31 @@ class PacketDefinitionEditor(QMainWindow):
                 break
         self.ui.bitLengthSpinBox.setEnabled(False)
 
-    def populateFields(self,fieldsList,sourceFile,parent,color=QColor.fromHsv(0,0,255)):
+    def populateFields(self,fieldsList,sourceFile,parent,color=WHITE):
         for fieldDict in fieldsList:
-            FieldItem(parent,sourceFile,fieldDict,color)
+            parentItems = self.findAllParentItems(sourceFile,parent)
+            FieldItem(self.ui,parent,sourceFile,fieldDict,parentItems,color)
 
+    def findAllParentItems(self,sourceFile,parent):
+
+        matches = self.ui.telemetryDefinitionsTree.findItems(sourceFile,Qt.MatchContains)
+        parentList = matches
+        if sourceFile[-3:] == '.pd':
+            #find the parent text and match it in telemetry definitions
+            try:
+                parentText = parent.text(0)
+                parentItem = parentList[0]
+                for i in range(parentItem.childCount()):
+                    if parentText in parentItem.child(i).text(0):
+                        parentList.append(parentItem.child(i))
+                        break
+                parentList.append(parent)
+            except:
+                parentList.append(self.ui.telemetryDefinitionsTree.currentItem())
+        return parentList
+    
     def populateFieldParameters(self,fieldDict):
+        self.fieldChanged = False
         validField, msgs = self.pktDefUtil.validateField(fieldDict)
         if not validField:
             self.ui.validFieldLabel.setText(f"Invalid Field")
@@ -356,8 +414,22 @@ class PacketDefinitionEditor(QMainWindow):
             for control in self.fieldControls:
                 control.setEnabled(True)
 
+        self.ui.saveFieldButton.setEnabled(False)
+
+    def fieldParameterChanged(self):
+        self.fieldChanged = True
+        currentField = self.ui.fieldsTree.currentItem()
+        if currentField.validate():
+            self.ui.saveFieldButton.setEnabled(True)
+
     def writeDefDict(self,item):
         fieldDict ={}
+        fieldIndex = item.parent().indexOfChild(item)
+        if item.parentItemId:
+            backendField = self.telemetryDefinitions[item.sourceFile][item.parentItemId]['fields'][fieldIndex]
+        else:
+            backendField = self.telemetryDefinitions[item.sourceFile]['fields'][fieldIndex]
+            
         fieldDict['fieldName'] = self.ui.fieldNameLineEdit.text()
         fieldDict['bitLength'] = self.ui.bitLengthSpinBox.value()
         for typeName, typeDict in typeOptions.items():
@@ -393,9 +465,6 @@ class PacketDefinitionEditor(QMainWindow):
             savePath = Path(CONFIG()['telemetryDefinitionsBasepath']) / fileName
             with open(savePath,'w') as f:
                 json.dump(telemetryDef,f,indent=4)
-        
-
-
 
 if __name__ == '__main__':
     os.environ.pop("SESSION_MANAGER", None)
