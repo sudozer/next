@@ -13524,8 +13524,10 @@
             },
             {
                 "fieldName": "detTemp",
-                "type": "int3_t",
+                "bitLength": 8,
+                "type": "int8_t",
                 "description": "Tracker detector temperature.",
+                "bitstructType": "s8",
                 "conversion": {
                     "units": "C",
                     "deconversionFunction": "polynomial",
@@ -13550,9 +13552,7 @@
                     },
                     "valueCal": null,
                     "convertedType": "float"
-                },
-                "bitLength": 8,
-                "bitstructType": "s8"
+                }
             },
             {
                 "fieldName": "checksum",

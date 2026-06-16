@@ -4,6 +4,14 @@ import json
 import os
 import copy
 
+"""
+TODO
+write csv methods
+add methods to handle new definitions and remove them
+add methods to build and edit telemetry structures
+add methods to add and remove fields to telemetry definitions
+add methods to define and edit conversions and limits
+"""
 from PySide6.QtGui import QColor #for colors
 from PySide6.QtCore import QFile, Qt
 from PySide6.QtUiTools import QUiLoader
@@ -97,11 +105,15 @@ class FieldItem(QTreeWidgetItem):
     def validate(self):
         validField,msgs = self.validator.validateField(self.fieldDict)
         if validField:
+            self.ui.validFieldLabel.setText(f"Valid Field")
+            self.ui.validFieldLabel.setStyleSheet("color:green")
             self.ui.fieldMessages.setText("Field fully validated")
             self.setBackground(0,self.color)
 
         elif not validField:
             self.setBackground(0,ERRORCOLOR)
+            self.ui.validFieldLabel.setText(f"Invalid Field")
+            self.ui.validFieldLabel.setStyleSheet("color:red")
             self.ui.fieldMessages.setText("\n".join(msgs))
 
         if not validField == self.currentlyValid:
@@ -158,12 +170,35 @@ class PacketDefinitionEditor(QMainWindow):
 
         self.ui.variableLengthCheckbox.stateChanged.connect(self.variableLengthChanged)
         self.ui.arrayLengthSpinBox.valueChanged.connect(self.arrayLengthChanged)
-        self.ui.saveDefinitionButton.clicked.connect(self.saveTelemetryDefinitions)
         self.ui.dynamicLengthFieldButton.setEnabled(False)
         self.ui.dynamicLengthFieldLineEdit.setEnabled(False)
         self.ui.lengthFieldOffsetSpinBox.setEnabled(False)
         self.ui.lengthInBitsComboBox.setEnabled(False)
         self.ui.saveFieldButton.clicked.connect(lambda: self.writeDefDict(self.ui.fieldsTree.currentItem()))
+
+        self.fieldControls = [
+            self.ui.fieldNameLineEdit,
+            self.ui.descriptionTextEdit,
+            self.ui.variableLengthCheckbox,
+            self.ui.dynamicLengthFieldButton,
+            self.ui.dynamicLengthFieldLineEdit, 
+            self.ui.lengthFieldOffsetSpinBox, 
+            self.ui.lengthInBitsComboBox, 
+            self.ui.arrayLengthSpinBox, 
+            self.ui.bitLengthSpinBox, 
+            self.ui.configureConversionButton,
+            self.ui.configureLimitsButton,
+            self.ui.saveFieldButton
+        ]
+        self.ui.fieldNameLineEdit.editingFinished.connect(self.fieldParameterChanged)
+        self.ui.descriptionTextEdit.textChanged.connect(self.fieldParameterChanged)
+        self.ui.variableLengthCheckbox.checkStateChanged.connect(self.fieldParameterChanged)
+        self.ui.dynamicLengthFieldLineEdit.editingFinished.connect(self.fieldParameterChanged)
+        self.ui.lengthFieldOffsetSpinBox.valueChanged.connect(self.fieldParameterChanged)
+        self.ui.lengthFieldOffsetSpinBox.valueChanged.connect(self.fieldParameterChanged)
+        self.ui.lengthInBitsComboBox.currentTextChanged.connect(self.fieldParameterChanged)
+        self.ui.arrayLengthSpinBox.valueChanged.connect(self.fieldParameterChanged)
+        self.ui.bitLengthSpinBox.valueChanged.connect(self.fieldParameterChanged)
 
     def loadDefsStructs(self):
         self.populateTelemetryDefinitions()
@@ -246,7 +281,7 @@ class PacketDefinitionEditor(QMainWindow):
                 else:
                     #packet definition
                     for pktId,pktDef in defDict.items():
-                        packetItem = QTreeWidgetItem(self.ui.fieldsTree,[f"{pktId} - {pktDef['packetName']}"])
+                        packetItem = ParentItem(self.ui.fieldsTree,f"{pktId} - {pktDef['packetName']}")
                         packetItem.setBackground(0,childColor)
                         self.populateFields(pktDef['fields'],childText,packetItem,childColor)
     
@@ -267,7 +302,6 @@ class PacketDefinitionEditor(QMainWindow):
                 telemetryDefinitionName = selectedItem.text(0)
                 if not 'fields' in defDict:
                     #packet definition selected, display all packets
-                    
                     for pktId,pktDef in defDict.items():
                         packetItem = ParentItem(self.ui.fieldsTree,f"{pktId} - {pktDef['packetName']}")
                         self.populateFields(pktDef['fields'],telemetryDefinitionName,packetItem)
@@ -288,7 +322,7 @@ class PacketDefinitionEditor(QMainWindow):
 
             if len(selectedItems) > 0 and isinstance(selectedItem,FieldItem):
                 fieldDict = selectedItem.fieldDict
-                self.populateFieldParameters(fieldDict)
+                self.populateFieldParameters(selectedItem)
             self.previouslySelected = self.ui.fieldsTree.currentItem()
 
     def askToSave(self,item):
@@ -352,18 +386,12 @@ class PacketDefinitionEditor(QMainWindow):
                 parentList.append(self.ui.telemetryDefinitionsTree.currentItem())
         return parentList
     
-    def populateFieldParameters(self,fieldDict):
+    def populateFieldParameters(self,item):
+        self.autoPopulating = True
+        fieldDict = item.fieldDict
         self.fieldChanged = False
-        validField, msgs = self.pktDefUtil.validateField(fieldDict)
-        if not validField:
-            self.ui.validFieldLabel.setText(f"Invalid Field")
-            self.ui.validFieldLabel.setStyleSheet("color:red")
-            errors = "\n".join(msgs)
-            self.ui.fieldMessages.setText(errors)
-        else:
-            self.ui.validFieldLabel.setText(f"Valid Field")
-            self.ui.validFieldLabel.setStyleSheet("color:green")
-            self.ui.fieldMessages.setText("Field fully validated")
+        validField = item.validate()
+
         self.ui.fieldNameLineEdit.setText(fieldDict['fieldName'])
         
         typeOptions = {
@@ -383,60 +411,80 @@ class PacketDefinitionEditor(QMainWindow):
             "double":{"label":"double","size":64},
             "char":{"label":"char","size":8}
         }
-
-        parameterDict = typeOptions[fieldDict['type']] 
-        self.ui.dataTypeComboBox.setCurrentText(parameterDict['label'])
-        if 'description' in fieldDict:
-            self.ui.descriptionTextEdit.setPlainText(fieldDict['description'])
-        if 'arrayLength' in fieldDict:
-            self.ui.arrayLengthSpinBox.setValue(fieldDict['arrayLength'])
-        else:
-            self.ui.arrayLengthSpinBox.setValue(1)
-
-        if 'variableLength' in fieldDict:
-            self.ui.variableLengthCheckbox.setChecked(True)
-            self.ui.dynamicLengthFieldLineEdit.setText(fieldDict['variableLength']['lengthField'])
-            self.ui.lengthFieldOffsetSpinBox.setValue(fieldDict['variableLength']['lengthFieldOffset'])
-            if fieldDict['variableLength']['lengthInBits']:
-                self.ui.lengthInBitsComboBox.setCurrentText("Bits")
-            else:                
-                self.ui.lengthInBitsComboBox.setCurrentText("Bytes")
+        #encapsulating in try excepts so other parameters still get populated if one of them fails
+        try:
+            #set dataType combobox
+            parameterDict = typeOptions[fieldDict['type']] 
+            self.ui.dataTypeComboBox.setCurrentText(parameterDict['label'])
+        except Exception as E:
+            print(E)
         
-        if self.ui.dataTypeComboBox.currentText() != "manually-sized uint" and self.ui.dataTypeComboBox.currentText() != "manually-sized int":
-            self.ui.bitLengthSpinBox.setValue(parameterDict['size'] * self.ui.arrayLengthSpinBox.value())
-        else:
-            if 'bitLength' in fieldDict:
-                self.ui.bitLengthSpinBox.setValue(fieldDict['bitLength'])
+        try:
+            #set description
+            if 'description' in fieldDict:
+                self.ui.descriptionTextEdit.setPlainText(fieldDict['description'])
+        except Exception as E:
+            print(E)
+
+        try:
+            if 'arrayLength' in fieldDict:
+                self.ui.arrayLengthSpinBox.setValue(fieldDict['arrayLength'])
             else:
-                self.ui.bitLengthSpinBox.setValue(0)
+                self.ui.arrayLengthSpinBox.setValue(1)
+        except Exception as E:
+            print(E)
+
+        try:
+            if 'variableLength' in fieldDict:
+                self.ui.variableLengthCheckbox.setChecked(True)
+                self.ui.dynamicLengthFieldLineEdit.setText(fieldDict['variableLength']['lengthField'])
+                self.ui.lengthFieldOffsetSpinBox.setValue(fieldDict['variableLength']['lengthFieldOffset'])
+                if fieldDict['variableLength']['lengthInBits']:
+                    self.ui.lengthInBitsComboBox.setCurrentText("Bits")
+                else:                
+                    self.ui.lengthInBitsComboBox.setCurrentText("Bytes")
+        except Exception as E:
+            print(E)
+
+        try:
+            if self.ui.dataTypeComboBox.currentText() != "manually-sized uint" and self.ui.dataTypeComboBox.currentText() != "manually-sized int":
+                self.ui.bitLengthSpinBox.setValue(parameterDict['size'] * self.ui.arrayLengthSpinBox.value())
+            else:
+                if 'bitLength' in fieldDict:
+                    self.ui.bitLengthSpinBox.setValue(fieldDict['bitLength'])
+                else:
+                    self.ui.bitLengthSpinBox.setValue(0)
+        except Exception as E:
+            print(E)
+        self.autoPopulating = False
 
         if not validField:
             for control in self.fieldControls:
                 control.setEnabled(True)
-
-        self.ui.saveFieldButton.setEnabled(False)
+        #self.ui.saveFieldButton.setEnabled(False)
 
     def fieldParameterChanged(self):
+        if self.autoPopulating:
+            return
+        
         self.fieldChanged = True
         currentField = self.ui.fieldsTree.currentItem()
+        self.writeDefDict(currentField)
         if currentField.validate():
             self.ui.saveFieldButton.setEnabled(True)
 
     def writeDefDict(self,item):
+        
         fieldDict ={}
         fieldIndex = item.parent().indexOfChild(item)
-        if item.parentItemId:
-            backendField = self.telemetryDefinitions[item.sourceFile][item.parentItemId]['fields'][fieldIndex]
-        else:
-            backendField = self.telemetryDefinitions[item.sourceFile]['fields'][fieldIndex]
-            
+
         fieldDict['fieldName'] = self.ui.fieldNameLineEdit.text()
         fieldDict['bitLength'] = self.ui.bitLengthSpinBox.value()
         for typeName, typeDict in typeOptions.items():
             if self.ui.dataTypeComboBox.currentText() == typeDict['label']:
                 fieldDict['type'] = typeName
                 break
-        
+
         if len(self.ui.descriptionTextEdit.toPlainText()) > 0:
             fieldDict['description'] = self.ui.descriptionTextEdit.toPlainText()
         
@@ -450,21 +498,23 @@ class PacketDefinitionEditor(QMainWindow):
                 'lengthInBits': self.ui.lengthInBitsComboBox.currentText() == "Bits"
             }
         else:
-            fieldDict['bitstructType'] = self.pktDefUtil.getBitstructType(fieldDict)
-        
+            fieldDict['bitstructType'] = self.pktDefUtil.createBitstructString(fieldDict)
         if item.conversion:
             fieldDict['conversion'] = item.conversion
         if item.limits:
             fieldDict['limits'] = item.limits
 
         item.fieldDict = fieldDict
+        if item.parentItemId:
+            self.telemetryDefinitions[item.sourceFile][item.parentItemId]['fields'][fieldIndex] = fieldDict
+        else:
+            self.telemetryDefinitions[item.sourceFile]['fields'][fieldIndex] = fieldDict
 
-    def saveTelemetryDefinitions(self):
-        pdb.set_trace()
-        for fileName, telemetryDef in self.telemetryDefinitions.items():
-            savePath = Path(CONFIG()['telemetryDefinitionsBasepath']) / fileName
-            with open(savePath,'w') as f:
-                json.dump(telemetryDef,f,indent=4)
+    def saveTelemetryDefinition(self, sourceFile):
+        defDict = self.telemetryDefinitions[sourceFile]
+        savePath = Path(CONFIG()['telemetryDefinitionsBasepath']) / sourceFile
+        with open(savePath,'w') as f:
+            json.dump(defDict,f,indent=4)
 
 if __name__ == '__main__':
     os.environ.pop("SESSION_MANAGER", None)
